@@ -1,3 +1,11 @@
+(ql:quickload "alexandria")
+(ql:quickload "anaphora")
+(ql:quickload "bordeaux-threads")
+
+(defpackage :cl-csa
+  (:use :common-lisp :anaphora))
+
+(in-package :cl-csa)
 
 ;;; random -------------------------------------------------------
 (defun get-random-val (&rest args)
@@ -36,13 +44,10 @@
 (defclass alpha-spec ()
   ((l-bound :reader as-l-bound
             :initarg :l-bound
-            :initform 0.01)
+            :initform 0.0001)
    (u-bound :reader as-u-bound
             :initarg :u-bound
-            :initform 1)
-   (k :reader as-k
-      :initarg :k
-      :initform 10)))
+            :initform 0.4)))
 
 (defclass cuckoo-search-spec ()
   ((func :reader css-func
@@ -121,33 +126,37 @@
   (let* ((a-spec (css-alpha-spec *cuckoos-search-spec*))
          (a-min (as-l-bound a-spec))
          (a-max (as-u-bound a-spec))
-         (k (as-k a-spec)))
+         (k (css-max-gen *cuckoos-search-spec*)))
     (* a-max (expt (/ a-min a-max) (/ iter k)))))
 
 (defun levy-random (lambda-val alpha-val)
-  (* (expt (1+ (random 1000))
+  (* (expt (/ (1+ (random 999))
+              1000)
            (- (/ 1 lambda-val)))
      alpha-val
-     (- (1+ (random 1000))
+     (- (/ (1+ (random 999))
+           1000)
         0.5)))
 
 (defmethod levy-flight ((c cuckoo) gen)
   (let* ((cur-nest (get-nest c))
          (vals (n-params cur-nest))
          (alpha-val (get-alpha c gen))
-         (lambda-val (get-lambda c))
-         (levy-val (levy-random lambda-val alpha-val)))
+         (lambda-val (get-lambda c)))
     (make-instance 'nest
-                   :params (mapcar (lambda (x) (+ x levy-val)) vals))))
+                   :params (mapcar (lambda (x)
+                                     (+ x (levy-random lambda-val alpha-val)))
+                                   vals))))
 
 ;;; initial functions -------------------------------------------
 (defun generate-initial-nests ()
   (let* ((n (css-nests-count *cuckoos-search-spec*))
          (res (make-array n)))
     (loop for i from 0 to (1- n)
-       do (setf (aref res i) (make-instance 'nest :params (funcall
-                                                           (cf-value-gen
-                                                            (css-func *cuckoos-search-spec*))))))
+       do (setf (aref res i) (make-instance 'nest
+                                            :params (funcall
+                                                     (cf-value-gen
+                                                      (css-func             *cuckoos-search-spec*))))))
     (sort-nests res)))
 
 (defun generate-initial-cuckoos ()
@@ -170,7 +179,7 @@
 (defun sort-nests (n-array)
   (sort n-array #'> :key #'nest-fitness))
 
-;;; main functions ----------------------------------------------
+;;; main functions ----------------------------------------------------
 (defun cuckoo-search (cuckoo-spec)
   (let* ((*cuckoos-search-spec* cuckoo-spec)
          (*nests* (generate-initial-nests))
@@ -178,7 +187,7 @@
     (cuckoo-search-inner)))
 
 (defun cuckoo-search-inner ()
-  (loop for gen from 0 to (css-max-gen *cuckoos-search-spec*)
+  (loop for gen from 0 to (1- (css-max-gen *cuckoos-search-spec*))
      when (not (funcall (css-stop-pred *cuckoos-search-spec*)))
      do (cuckoo-step gen))
   (nest-value (aref *nests* 0)))
@@ -201,26 +210,27 @@
      do (let* ((new-nest (levy-flight c gen))
                (nest-id (random (css-nests-count *cuckoos-search-spec*)))
                (rand-nest (aref *nests* nest-id)))
-          ;; (format t "ITERATION: ~A~%NEW: ~A~%OLD: ~A~%~%" gen new-nest rand-nest)
           (when (> (nest-fitness new-nest) (nest-fitness rand-nest))
             (setf (aref *nests* nest-id) new-nest))))
   (refresh-nests)
   (refresh-cuckoos))
 
+;;; tested functions ----------------------------------------------------
 (defun sphere (&rest xs)
   (reduce #'+ (mapcar (lambda (x) (expt x 2)) xs)))
 
+;;; tests ---------------------------------------------------------------
 (defun test ()
-  (profile sort-nests sort-cuckoos levy-flight)
+  (sb-profile:profile sort-nests sort-cuckoos levy-flight)
   (time
    (let ((res (cuckoo-search (make-instance 'cuckoo-search-spec
                                             :func (make-instance 'cuckoo-func
                                                                  :func #'sphere
                                                                  :value-gen (lambda () (get-random-list 50 -100 100)))
                                             :nests-count 200
-                                            :cuckoos-count 100
-                                            :a-nest-count 100
-                                            :max-gen 1000))))
+                                            :cuckoos-count 200
+                                            :a-nest-count 50
+                                            :max-gen 5000))))
      (format t "~%Y: ~A~%~%" res)))
-  (report)
-  (unprofile sort-nests sort-cuckoos levy-flight))
+  (sb-profile:report)
+  (sb-profile:unprofile sort-nests sort-cuckoos levy-flight))
