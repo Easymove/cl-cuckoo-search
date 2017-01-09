@@ -1,11 +1,13 @@
-;; (ql:quickload "alexandria")
+(ql:quickload "alexandria")
 (ql:quickload "anaphora")
-;; (ql:quickload "bordeaux-threads")
+(ql:quickload "cl-csv")
 
 (defpackage :cl-csa
-  (:use :common-lisp :anaphora))
+  (:use :common-lisp :anaphora :alexandria :cl-csv))
 
 (in-package :cl-csa)
+
+;; (declaim (optimize (speed 3)))
 
 ;;; random -------------------------------------------------------
 (defun get-random-val (&rest args)
@@ -16,7 +18,9 @@
                       0))
          (base (abs l-bound))
          (max (- u-bound l-bound)))
-    (- (random max) base)))
+    (- (/ (random (* max 1000000000))
+          1000000000)
+       base)))
 
 (defun get-random-list (n &rest params)
   (loop for i from 1 to n collect (apply #'get-random-val params)))
@@ -74,10 +78,12 @@
 (defclass cuckoo ()
   ((params :accessor c-params
            :initarg :params
-           :type list)
+           :type list
+           :initform nil)
    (id :accessor c-id
        :initarg :id
-       :type integer)))
+       :type integer
+       :initform -1)))
 
 (defmethod print-object ((obj cuckoo) stream)
   (format stream "#<CUCKOO ~A; ~A; ~A>" (c-id obj) (cuckoo-fitness obj) (cuckoo-value obj)))
@@ -164,7 +170,8 @@
   (loop for gen from 0 to (1- (css-max-gen *cuckoos-search-spec*))
      when (not (funcall (css-stop-pred *cuckoos-search-spec*)))
      do (cuckoo-step gen))
-  (cuckoo-value (aref *cuckoos* 0)))
+  (awhen (aref *cuckoos* 0)
+    (values (c-params it) (cuckoo-value it))))
 
 (defun refresh-cuckoos ()
   (let ((sorted-cuckoos (sort-cuckoos *cuckoos*)))
@@ -189,20 +196,169 @@
   (refresh-cuckoos))
 
 ;;; tested functions ----------------------------------------------------
+
+;;; x => [-100; 100]
+;;; d = 50
 (defun sphere (&rest xs)
   (reduce #'+ (mapcar (lambda (x) (expt x 2)) xs)))
 
+;;; x => [-32.768; 32.768]
+;;; d = 20
+(defun ackley-function (&rest args)
+  (let ((a 20) (b 0.2)
+        (c (* 2 pi))
+        (d (length args)))
+    (- (+ (exp 1) a)
+       (* a (exp (expt (/ (apply #'sphere args)
+                          d)
+                       (- (/ 1 b)))))
+       (exp (/ (loop for x in args
+                  sum (cos (* c x)))
+               d)))))
+
+;;; x => [-600; 600]
+;;; d = 50
+(defun griewank-function (&rest args)
+  (1+
+   (- (loop for x in args
+         sum (/ (expt x 2) 4000))
+      (let ((p 1))
+        (loop
+           for i from 1 to (1- (length args))
+           for x in args
+           do
+             (setf p (* p (cos (/ x (expt i 0.5))))))
+        p))))
+
+;;; x => [-5.12; 5.12]
+;;; d = 30
+(defun rastrigin-function (&rest args)
+  (+ (* 10 (length args))
+     (loop
+        for x in args
+        sum (- (expt x 2) (* 10 (cos (* 2 pi x)))))))
+
+;;; x => [-5; 10]
+;;; d = 30
+(defun rosenbrock-function (&rest args)
+  (let ((params (make-array (length args)
+                            :initial-contents args)))
+    (labels ((%nth (n)
+               (aref params n)))
+      (loop
+         for i from 0 to (- (length args) 2)
+         sum (+ (* (expt (- (%nth (1+ i)) (expt (%nth i) 2))
+                         2)
+                   100)
+                (expt (1- (%nth i)) 2))))))
+
+
 ;;; tests ---------------------------------------------------------------
-(defun test ()
-  (sb-profile:profile sort-cuckoos levy-flight)
-  (time
-   (let ((res (cuckoo-search (make-instance 'cuckoo-search-spec
-                                            :func (make-instance 'cuckoo-func
-                                                                 :func #'sphere
-                                                                 :value-gen (lambda () (get-random-list 10 -100 100)))
-                                            :cuckoos-count 200
-                                            :a-nest-count 50
-                                            :max-gen 1000))))
-     (format t "~%Y: ~A~%~%" res)))
-  (sb-profile:report)
-  (sb-profile:unprofile sort-cuckoos levy-flight))
+(defun cuckoo-search-aux (func val-gen c-count iter-count)
+  (cuckoo-search (make-instance 'cuckoo-search-spec
+                                :func (make-instance 'cuckoo-func
+                                                     :func func
+                                                     :value-gen val-gen)
+                                :cuckoos-count c-count
+                                :a-nest-count (round (/ c-count) 4)
+                                :max-gen iter-count)))
+
+(defparameter *all-runs* (make-hash-table :test #'equal))
+
+(defmacro def-run (name (&rest params) &body body)
+  `(progn
+     (defun ,name (,@params)
+       (handler-case (progn ,@body)
+         (error (e)
+           (declare (ignore e))
+           0)))
+     (setf (gethash (string ',name) *all-runs*) #',name)))
+
+(def-run sphere-run (&optional (c-count 200) (iter-count 500))
+  (cuckoo-search-aux #'sphere
+                     (lambda () (get-random-list 10 -100 100))
+                     c-count iter-count))
+
+(def-run ackley-run (&optional (c-count 200) (iter-count 500))
+  (cuckoo-search-aux #'ackley-function
+                     (lambda () (get-random-list 10 -32.768 32.768))
+                     c-count iter-count))
+
+(def-run griewank-run (&optional (c-count 200) (iter-count 500))
+  (cuckoo-search-aux #'griewank-function
+                     (lambda () (get-random-list 10 -600 600))
+                     c-count iter-count))
+
+(def-run rastrigin-run (&optional (c-count 200) (iter-count 500))
+  (cuckoo-search-aux #'rastrigin-function
+                     (lambda () (get-random-list 10 -5.12 5.12))
+                     c-count iter-count))
+
+(def-run rosenbrock-run (&optional (c-count 200) (iter-count 500))
+  (cuckoo-search-aux #'rosenbrock-function
+                     (lambda () (get-random-list 10 -5 10))
+                     c-count iter-count))
+
+(defmacro test-aux (&body func)
+  `(time
+    (multiple-value-bind (params val) (progn ,@func)
+      (format t "params:~%~A~%val: ~A~%" params val))))
+
+(defparameter *all-tests* (make-hash-table :test #'equal))
+
+(defmacro def-test (name (&rest params) &body body)
+  `(progn
+     (defun ,name (,@params)
+       (handler-case (progn ,@body)
+         (error (e)
+           (declare (ignore e))
+           (format t "ERROR!~%"))))
+     (setf (gethash (string ',name) *all-tests*) #',name)))
+
+(def-test sphere-test ()
+  (test-aux (sphere-run 200 500)))
+
+(def-test ackley-test ()
+  (test-aux (ackley-run 400 500)))
+
+(def-test griewank-test ()
+  (test-aux (griewank-run 600 500)))
+
+(def-test rastrigin-test ()
+  (test-aux (rastrigin-run 800 500)))
+
+(def-test rosenbrock-test ()
+  (test-aux (rosenbrock-run 1000 500)))
+
+(defun run-all-tests ()
+  (format t "~%=====================================~%")
+  (maphash (lambda (name func)
+             (format t "Running ~A~%" name)
+             (funcall func)
+             (format t "-------------------------------------~%"))
+           *all-tests*)
+  (format t "=====================================~%"))
+
+(defun stat-all (&optional (dump-folder (multiple-value-bind
+                                              (second minute hour date month year)
+                                            (get-decoded-time)
+                                          (format nil "cuckoo_run__~a_~a_~a__~a:~a:~a"
+                                                  month date year
+                                                  hour minute second))))
+  (ensure-directories-exist dump-folder)
+  (maphash (lambda (name run)
+             (with-open-file (csv (format nil "~A.csv" name)
+                                  :if-exists :supersede
+                                  :direction :output
+                                  :if-does-not-exist :create)
+               (let ((res))
+                 (loop
+                    for i from 10 to 1000
+                    when (= (rem i 50) 0)
+                    do
+                      (multiple-value-bind (params val) (funcall run i)
+                        (declare (ignore params))
+                        (push (list i val) res)))
+                 (write-csv (append '(("cuckoos" "value")) (reverse res))
+                            :stream csv))))
+           *all-runs*))
