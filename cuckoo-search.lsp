@@ -1,6 +1,9 @@
-(ql:quickload "alexandria")
-(ql:quickload "anaphora")
-(ql:quickload "cl-csv")
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (ql:quickload "alexandria")
+  (ql:quickload "anaphora")
+  (ql:quickload "cl-csv")
+  ;; (ql:quickload "bordeaux-threads")
+  )
 
 (defpackage :cl-csa
   (:use :common-lisp :anaphora :alexandria :cl-csv))
@@ -342,12 +345,13 @@
 (defun stat-all (&optional (dump-folder (multiple-value-bind
                                               (second minute hour date month year)
                                             (get-decoded-time)
-                                          (format nil "cuckoo_run__~a_~a_~a__~a:~a:~a"
+                                          (format nil "~Acuckoo_run__~a_~a_~a__~a:~a:~a/"
+                                                  "/home/easymove/projects/common-lisp/cl-cuckoo-search/"
                                                   month date year
                                                   hour minute second))))
   (ensure-directories-exist dump-folder)
   (maphash (lambda (name run)
-             (with-open-file (csv (format nil "~A.csv" name)
+             (with-open-file (csv (format nil "~A/~A.csv" dump-folder name)
                                   :if-exists :supersede
                                   :direction :output
                                   :if-does-not-exist :create)
