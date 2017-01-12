@@ -21,8 +21,7 @@
                       0))
          (base (abs l-bound))
          (max (- u-bound l-bound)))
-    (- (/ (random (* max 1000000000))
-          1000000000)
+    (- (random (coerce max 'double-float))
        base)))
 
 (defun get-random-list (n &rest params)
