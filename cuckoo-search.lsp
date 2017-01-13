@@ -318,19 +318,19 @@
      (setf (gethash (string ',name) *all-tests*) #',name)))
 
 (def-test sphere-test ()
-  (test-aux (sphere-run 200 500)))
+  (test-aux (sphere-run 200 1000)))
 
 (def-test ackley-test ()
-  (test-aux (ackley-run 400 500)))
+  (test-aux (ackley-run 400 1000)))
 
 (def-test griewank-test ()
-  (test-aux (griewank-run 600 500)))
+  (test-aux (griewank-run 600 1000)))
 
 (def-test rastrigin-test ()
-  (test-aux (rastrigin-run 800 500)))
+  (test-aux (rastrigin-run 800 1000)))
 
 (def-test rosenbrock-test ()
-  (test-aux (rosenbrock-run 1000 500)))
+  (test-aux (rosenbrock-run 1000 1000)))
 
 (defun run-all-tests ()
   (format t "~%=====================================~%")
@@ -344,8 +344,8 @@
 (defun stat-all (&optional (dump-folder (multiple-value-bind
                                               (second minute hour date month year)
                                             (get-decoded-time)
-                                          (format nil "~Acuckoo_run__~a_~a_~a__~a:~a:~a/"
-                                                  "/home/easymove/projects/common-lisp/cl-cuckoo-search/"
+                                          (format nil "~A/cuckoo_run__~a_~a_~a__~2d_~2d_~2d/"
+                                                  (sb-unix::posix-getenv "HOME")
                                                   month date year
                                                   hour minute second))))
   (ensure-directories-exist dump-folder)
@@ -356,8 +356,8 @@
                                   :if-does-not-exist :create)
                (let ((res))
                  (loop
-                    for i from 10 to 1000
-                    when (= (rem i 50) 0)
+                    for i from 100 to 2000
+                    when (= (rem i 100) 0)
                     do
                       (multiple-value-bind (params val) (funcall run i)
                         (declare (ignore params))
