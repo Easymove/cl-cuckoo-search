@@ -126,12 +126,12 @@
     (* a-max (expt (/ a-min a-max) (/ iter k)))))
 
 (defun levy-random (lambda-val alpha-val)
-  (* (expt (/ (1+ (random 999))
-              1000)
+  (* (expt (+ (random (- 1 double-float-epsilon))
+              double-float-epsilon)
            (- (/ 1 lambda-val)))
      alpha-val
-     (- (/ (1+ (random 999))
-           1000)
+     (- (+ (random (- 1 double-float-epsilon))
+           double-float-epsilon)
         0.5)))
 
 (defmethod levy-flight ((c cuckoo) gen)
@@ -270,15 +270,17 @@
 (defmacro def-run (name (&rest params) &body body)
   `(progn
      (defun ,name (,@params)
-       (handler-case (progn ,@body)
-         (error (e)
-           (declare (ignore e))
-           0)))
+       (if *testing*
+           (progn ,@body)
+           (handler-case (progn ,@body)
+             (error (e)
+               (declare (ignore e))
+               0))))
      (setf (gethash (string ',name) *all-runs*) #',name)))
 
 (def-run sphere-run (&optional (c-count 200) (iter-count 500))
   (cuckoo-search-aux #'sphere
-                     (lambda () (get-random-list 10 -100 100))
+                     (lambda () (get-random-list 20 -100 100))
                      c-count iter-count))
 
 (def-run ackley-run (&optional (c-count 200) (iter-count 500))
@@ -308,13 +310,17 @@
 
 (defparameter *all-tests* (make-hash-table :test #'equal))
 
+(defparameter *testing* t)
+
 (defmacro def-test (name (&rest params) &body body)
   `(progn
      (defun ,name (,@params)
-       (handler-case (progn ,@body)
-         (error (e)
-           (declare (ignore e))
-           (format t "ERROR!~%"))))
+       (if *testing*
+           (progn ,@body)
+           (handler-case (progn ,@body)
+             (error (e)
+               (declare (ignore e))
+               (format t "ERROR!~%")))))
      (setf (gethash (string ',name) *all-tests*) #',name)))
 
 (def-test sphere-test ()
